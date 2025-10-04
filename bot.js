@@ -15,6 +15,7 @@ const client = new Client({
         '--no-zygote'
     ]
 }
+
 });
 // ============ FUNÇÕES AUXILIARES ============
 const delay = ms => new Promise(res => setTimeout(res, ms));
