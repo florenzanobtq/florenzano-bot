@@ -1,47 +1,21 @@
-# Usa uma imagem base leve do Node.js
-FROM node:18-slim
+# Troque a imagem base para uma mais compatível com as dependências do Puppeteer
+FROM node:18-bullseye-slim
 
-# Instala as dependências de sistema operacional necessárias para o Puppeteer (Chromium)
-# Esta é uma lista testada de bibliotecas que o Puppeteer exige.
-RUN apt-get update && \
-    apt-get install -y \
-        ca-certificates \
-        fonts-liberation \
-        libappindicator3-1 \
-        libasound2 \
-        libatk-bridge2.0-0 \
-        libatk1.0-0 \
-        libatspi2.0-0 \
-        libcairo2 \
-        libcups2 \
-        libdbus-1-3 \
-        libdrm2 \
-        libexpat1 \
-        libfontconfig1 \
-        libgbm1 \
-        libgdk-pixbuf2.0-0 \
-        libglib2.0-0 \
-        libgtk-3-0 \
-        libnspr4 \
-        libnss3 \
-        libpango-1.0-0 \
-        libpangocairo-1.0-0 \
-        libx11-6 \
-        libxcomposite1 \
-        libxdamage1 \
-        libxext6 \
-        libxfixes3 \
-        libxkbcommon0 \
-        libxrandr2 \
-        libxshmfence6 \
-        libxss1 \
-        libxtst6 \
-        wget \
-        xz-utils \
-        --no-install-recommends && \
-    rm -rf /var/lib/apt/lists/*
+# Variável de ambiente para evitar que o Puppeteer baixe o Chromium de novo (opcional, mas bom)
+ENV PUPPETEER_SKIP_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
 
-# Configura o ambiente
+# Instala o Google Chrome (navegador) e as dependências de sistema necessárias
+RUN apt-get update && apt-get install -y wget gnupg apt-transport-https \
+    # Instala o navegador Chrome/Chromium e as dependências principais
+    && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
+    && sh -c 'echo "deb [arch=amd64] https://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list' \
+    && apt-get update \
+    && apt-get install -y google-chrome-stable \
+    # Limpa o cache
+    && rm -rf /var/lib/apt/lists/*
+
+# Configuração do ambiente
 WORKDIR /app
 
 # Copia e instala as dependências do Node.js
