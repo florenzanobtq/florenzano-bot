@@ -1,0 +1,3 @@
+# Florenzano Bot - WhatsApp
+
+Instruções para rodar o bot...

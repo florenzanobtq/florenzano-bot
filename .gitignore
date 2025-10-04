@@ -1,0 +1,10 @@
+# Node.js
+node_modules/
+npm-debug.log
+
+# Sessão do WhatsApp
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Ambiente
+.env
