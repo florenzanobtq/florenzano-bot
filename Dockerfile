@@ -27,5 +27,8 @@ RUN npm install
 # Copia o resto do código do bot
 COPY . .
 
+#Mantém o container ativo
+EXPOSE 3000
+
 # Comando para iniciar o bot
 CMD [ "node", "bot.js" ]
