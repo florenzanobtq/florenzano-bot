@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y wget gnupg apt-transport-https \
     && sh -c 'echo "deb [arch=amd64] https://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list' \
     && apt-get update \
     && apt-get install -y google-chrome-stable \
+# <=== NOVA LINHA AQUI! ===>
+    && apt-get install -y libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm-dev \
     # Limpa o cache
     && rm -rf /var/lib/apt/lists/*
 
