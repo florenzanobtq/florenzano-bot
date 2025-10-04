@@ -5,12 +5,17 @@ const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 // ============ CONFIGURAÇÃO DO CLIENTE ============
 const client = new Client({
     authStrategy: new LocalAuth(),
-    puppeteer: {
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-    }
+    puppeteer: puppeteer: {
+    headless: true,
+    args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-gpu', 
+        '--disable-dev-shm-usage', 
+        '--no-zygote'
+    ]
+}
 });
-
 // ============ FUNÇÕES AUXILIARES ============
 const delay = ms => new Promise(res => setTimeout(res, ms));
 
