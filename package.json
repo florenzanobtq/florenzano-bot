@@ -4,7 +4,7 @@
   "description": "Bot WhatsApp usando Baileys",
   "main": "bot.js",
   "scripts": {
-    "start": "node bot.js",
+    "start": "node bot-baileys.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
