@@ -1,10 +1,19 @@
 // ==============================
 // 📦 Importações
 // ==============================
+console.log("🔍 Variáveis de conexão:");
+console.log({
+  PGHOST: process.env.PGHOST,
+  PGUSER: process.env.PGUSER,
+  PGDATABASE: process.env.PGDATABASE,
+  PGPORT: process.env.PGPORT,
+});
+
 const {
   default: makeWASocket,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  initAuthCreds,
 } = require("@whiskeysockets/baileys");
 const { Boom } = require("@hapi/boom");
 const qrcode = require("qrcode-terminal");
@@ -69,16 +78,21 @@ async function startBot() {
       console.log("✅ Tabela 'auth' verificada/criada.");
     }
 
-    // Lê autenticação do banco
+    // Ler autenticação do banco
     const { creds, keys } = await readAuthState();
 
-    // Pega a versão mais recente do Baileys
+    // Obter a versão mais recente do WhatsApp
     const { version, isLatest } = await fetchLatestBaileysVersion();
     console.log(`📲 Usando versão do WhatsApp: v${version.join(".")} (última? ${isLatest})`);
 
-    // Cria o socket do Baileys
+    // Se não existir autenticação, cria uma nova
+    const authState = creds
+      ? { creds, keys }
+      : { creds: initAuthCreds(), keys: {} };
+
+    // Criar o socket do Baileys
     const sock = makeWASocket({
-      auth: { creds, keys },
+      auth: authState,
       version,
     });
 
@@ -96,7 +110,6 @@ async function startBot() {
       if (connection === "close") {
         const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
         console.log("⚠️ Conexão fechada. Motivo:", reason);
-
         console.log("🔁 Tentando reconectar em 5 segundos...");
         setTimeout(() => startBot(), 5000);
       }
@@ -147,6 +160,7 @@ async function startBot() {
     // 💾 Atualiza credenciais quando mudar
     // ==============================
     sock.ev.on("creds.update", () => saveAuthState(sock.authState));
+
   } catch (err) {
     console.error("❌ Erro ao iniciar o bot:", err);
   }
