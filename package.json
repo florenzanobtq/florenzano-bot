@@ -1,18 +1,18 @@
 {
   "name": "florenzano-bot",
   "version": "1.0.0",
-  "description": "Assistente virtual da Florenzano Boutique para WhatsApp.",
-  "main": "bot.js",
+  "description": "Bot WhatsApp usando Baileys",
+  "main": "bot-baileys.js",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node bot-baileys.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "qrcode-terminal": "^0.12.0",
-    "whatsapp-web.js": "^1.24.0"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "author": "Florenzano Boutique",
-  "license": "MIT"
+    "@hapi/boom": "^10.0.0",
+    "@whiskeysockets/baileys": "^6.7.0",
+    "qrcode-terminal": "^0.12.0"
+  }
 }
