@@ -1,19 +1,15 @@
 {
   "name": "florenzano-bot",
   "version": "1.0.0",
-  "description": "Bot WhatsApp usando Baileys",
-  "main": "bot.js",
+  "description": "Bot WhatsApp usando Baileys com PostgreSQL",
+  "main": "bot-baileys.js",
   "scripts": {
-    "start": "node bot.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node bot-baileys.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "@hapi/boom": "^10.0.0",
-    "@whiskeysockets": "^6.7.0",
-    "qrcode-terminal": "^0.12.0",
-    "pg": "^8.11.3"
+    "@whiskeysockets/baileys": "^6.7.0",
+    "pg": "^8.11.3",
+    "qrcode": "^1.5.3"
   }
 }
