@@ -2,9 +2,9 @@
   "name": "florenzano-bot",
   "version": "1.0.0",
   "description": "Bot WhatsApp usando Baileys",
-  "main": "bot-baileys.js",
+  "main": "bot.js",
   "scripts": {
-    "start": "node bot-baileys.js",
+    "start": "node bot.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -12,7 +12,7 @@
   "license": "ISC",
   "dependencies": {
     "@hapi/boom": "^10.0.0",
-    "@whiskeysockets/baileys": "^6.7.0",
+    "@whiskeysockets": "^6.7.0",
     "qrcode-terminal": "^0.12.0",
     "pg": "^8.11.3"
   }
