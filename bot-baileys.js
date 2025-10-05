@@ -16,7 +16,9 @@ const {
   initAuthCreds,
 } = require("@whiskeysockets/baileys");
 const { Boom } = require("@hapi/boom");
-const qrcode = require("qrcode-terminal");
+const fs = require("fs");
+const path = require("path");
+const qrcode = require("qrcode");
 const { Client } = require("pg");
 
 // ==============================
@@ -78,19 +80,17 @@ async function startBot() {
       console.log("✅ Tabela 'auth' verificada/criada.");
     }
 
-    // Ler autenticação do banco
+    // Lê autenticação do banco
     const { creds, keys } = await readAuthState();
 
-    // Obter a versão mais recente do WhatsApp
+
     const { version, isLatest } = await fetchLatestBaileysVersion();
     console.log(`📲 Usando versão do WhatsApp: v${version.join(".")} (última? ${isLatest})`);
 
-    // Se não existir autenticação, cria uma nova
-    const authState = creds
-      ? { creds, keys }
-      : { creds: initAuthCreds(), keys: {} };
+    // Se não existir auth salvo, cria um novo
+    const authState = creds ? { creds, keys } : { creds: initAuthCreds(), keys: {} };
 
-    // Criar o socket do Baileys
+    // Cria o socket do Baileys
     const sock = makeWASocket({
       auth: authState,
       version,
@@ -99,12 +99,18 @@ async function startBot() {
     // ==============================
     // 📡 Evento de conexão
     // ==============================
-    sock.ev.on("connection.update", (update) => {
+    sock.ev.on("connection.update", async (update) => {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
-        console.log("📱 Escaneie este QR Code para conectar:");
-        qrcode.generate(qr, { small: true });
+        console.log("📱 Gerando imagem do QR Code...");
+
+        const qrPath = path.join("/tmp", "qrcode.png");
+        await qrcode.toFile(qrPath, qr);
+
+        console.log(`✅ QR Code salvo em: ${qrPath}`);
+        console.log("🔗 Abra o Railway Logs, copie e cole o link abaixo no navegador:");
+        console.log(`➡️ file://${qrPath}`);
       }
 
       if (connection === "close") {
@@ -160,8 +166,7 @@ async function startBot() {
     // 💾 Atualiza credenciais quando mudar
     // ==============================
     sock.ev.on("creds.update", () => saveAuthState(sock.authState));
-
-  } catch (err) {
+   } catch (err) {
     console.error("❌ Erro ao iniciar o bot:", err);
   }
 }
