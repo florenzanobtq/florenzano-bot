@@ -1,0 +1,10 @@
+[build]
+builder = "DOCKERFILE"
+
+[deploy]
+numReplicas = 1
+startCommand = "npm start"
+
+[[deploy.volumes]]
+name = "session-storage"
+mountPath = "/data"
