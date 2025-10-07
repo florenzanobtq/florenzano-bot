@@ -10,6 +10,6 @@
     "@hapi/boom": "^10.0.0",
     "@whiskeysockets/baileys": "^6.7.0",
     "pg": "^8.11.3",
-    "qrcode": "^1.5.3"
+    "qrcode": "^1.5.4"
   }
 }
