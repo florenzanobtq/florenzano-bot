@@ -124,12 +124,11 @@ async function startBot() {
             const { connection, lastDisconnect, qr } = update;
 
             if (qr) {
-                // Gera o QR code em base64 e loga no console do Render
-                const qrBase64 = await qrcode.toDataURL(qr);
+                // ALTERAÇÃO: Agora loga a URL do QR Code (texto simples) e não a grade de pontos.
+                const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qr)}`;
                 console.log("----------------------------------------------------");
-                console.log("📱 Escaneie este QR Code no seu WhatsApp:");
-                // Logamos o texto do QR Code para ser copiado/escaneado
-                console.log(await qrcode.toString(qr, { type: 'terminal' }));
+                console.log("📱 Escaneie este QR Code:");
+                console.log(`🔗 **Abra este link em seu navegador para ver o QR Code:** ${qrUrl}`);
                 console.log("----------------------------------------------------");
             }
 
