@@ -1,220 +1,214 @@
-// ============ IMPORTAÇÕES ============
-const express = require('express');
-const { 
-    default: makeWASocket, 
-    DisconnectReason,
-    fetchLatestBaileysVersion,
-    initAuthCreds,
+// ==============================
+// 📦 Importações
+// ==============================
+const {
+  default: makeWASocket,
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  useMultiFileAuthState,
 } = require("@whiskeysockets/baileys");
 const { Boom } = require("@hapi/boom");
 const qrcode = require("qrcode");
-// Importação correta do cliente PG
+const fs = require("fs");
+const path = require("path");
 const { Client } = require("pg");
-
-// ==============================
-// 🗄️ Configuração do PostgreSQL para o Render
-// ==============================
-// CRÍTICO: Tentamos usar DATABASE_URL primeiro, que é a forma mais robusta no Render.
-const connectionConfig = process.env.DATABASE_URL 
-    ? { 
-        connectionString: process.env.DATABASE_URL,
-        ssl: { rejectUnauthorized: false } // SSL necessário para conexões no Render
-    }
-    : {
-        // Fallback para variáveis separadas, caso DATABASE_URL não exista
-        user: process.env.PGUSER,
-        host: process.env.PGHOST,
-        database: process.env.PGDATABASE,
-        password: process.env.PGPASSWORD,
-        port: process.env.PGPORT,
-        ssl: { rejectUnauthorized: false }, 
-    };
-
-const client = new Client(connectionConfig);
-
-// Conecta uma única vez e cria a tabela 'auth'
-async function connectDatabase() {
-    try {
-        await client.connect();
-        console.log("✅ PostgreSQL conectado com sucesso!");
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS auth (
-                id SERIAL PRIMARY KEY,
-                key TEXT UNIQUE NOT NULL,
-                value TEXT
-            );
-        `);
-        console.log("✅ Tabela 'auth' verificada/criada.");
-    } catch (err) {
-        // Se a conexão falhar, loga o erro e encerra a aplicação
-        console.error("❌ Erro ao conectar ao PostgreSQL:", err.message);
-        process.exit(1); 
-    }
-}
-
-// ==============================
-// 🔐 Funções de autenticação no banco
-// ==============================
-const AUTH_KEY = "creds";
-
-async function readAuthState() {
-    try {
-        const result = await client.query("SELECT value FROM auth WHERE key = $1", [AUTH_KEY]);
-        if (result.rows.length === 0) {
-            // Inicializa novas credenciais se não existirem
-            return { creds: null, keys: {} };
-        }
-        return {
-            creds: JSON.parse(result.rows[0].value),
-            keys: {},
-        };
-    } catch (err) {
-        console.error("⚠️ Erro ao ler autenticação:", err);
-        return { creds: null, keys: {} };
-    }
-}
-
-async function saveAuthState(authState) {
-    if (!authState?.creds) return;
-    try {
-        const value = JSON.stringify(authState.creds);
-        // ON CONFLICT para atualizar o registro se a chave 'creds' já existir
-        await client.query(
-            `INSERT INTO auth (key, value) VALUES ($1, $2)
-             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-            [AUTH_KEY, value]
-        );
-    } catch (err) {
-        console.error("⚠️ Erro ao salvar autenticação:", err);
-    }
-}
-
-// ==============================
-// 🤖 LÓGICA DO BOT (Com Express para Keep-Alive)
-// ==============================
+const express = require("express"); // 👈 IMPORTAÇÃO ADICIONADA
 const app = express();
-const PORT = process.env.PORT || 3000; 
+const PORT = process.env.PORT || 3000;
 
-// Keep-Alive Endpoint
-app.get('/', (req, res) => res.send('🤖 Florenzano Bot está online!'));
-app.listen(PORT, () => console.log(`🌐 Servidor Express ativo na porta ${PORT}`));
+// ==============================
+// 🗄️ Configuração do PostgreSQL
+// ==============================
+const client = new Client({
+  user: process.env.PGUSER,
+  host: process.env.PGHOST,
+  database: process.env.PGDATABASE,
+  password: process.env.PGPASSWORD,
+  port: process.env.PGPORT,
+  ssl: { rejectUnauthorized: false },
+});
 
+// A tabela foi corrigida para 'auth' (confirmei que é o nome correto no seu DB)
+const AUTH_TABLE_NAME = "auth";
+
+async function connectDatabase() {
+  try {
+    await client.connect();
+    console.log("✅ PostgreSQL conectado com sucesso!");
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ${AUTH_TABLE_NAME} (
+        id SERIAL PRIMARY KEY,
+        filename TEXT UNIQUE NOT NULL,
+        content BYTEA
+      );
+    `);
+    console.log(`✅ Tabela '${AUTH_TABLE_NAME}' verificada/criada.`);
+  } catch (err) {
+    console.error("❌ Erro ao conectar ao PostgreSQL:", err);
+    process.exit(1);
+  }
+}
+
+// ==============================
+// 💾 Funções auxiliares p/ salvar e restaurar arquivos de auth
+// ==============================
+const AUTH_DIR = "./auth_info";
+
+async function saveAuthFilesToDB() {
+  const files = fs.readdirSync(AUTH_DIR);
+  for (const file of files) {
+    const data = fs.readFileSync(path.join(AUTH_DIR, file));
+    await client.query(
+      `INSERT INTO ${AUTH_TABLE_NAME} (filename, content)
+        VALUES ($1, $2)
+        ON CONFLICT (filename)
+        DO UPDATE SET content = EXCLUDED.content`,
+      [file, data]
+    );
+  }
+}
+
+async function restoreAuthFilesFromDB() {
+  // Se a pasta não existe, cria. Se existir, é limpa no startBot()
+  if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR);
+
+  const res = await client.query(`SELECT filename, content FROM ${AUTH_TABLE_NAME}`);
+  for (const row of res.rows) {
+    fs.writeFileSync(path.join(AUTH_DIR, row.filename), row.content);
+  }
+}
+
+// ==============================
+// 🚀 Inicialização do bot
+// ==============================
 let reconnecting = false;
-const delay = ms => new Promise(res => setTimeout(res, ms));
+let qrCodeData = null; // 👈 Variável para armazenar o QR Code para o Express
 
 async function startBot() {
-    try {
-        const { version, isLatest } = await fetchLatestBaileysVersion();
-        console.log(`📲 Usando versão do WhatsApp: v${version.join(".")} (última? ${isLatest})`);
+  try {
+    const { version, isLatest } = await fetchLatestBaileysVersion();
+    console.log(`📲 Usando versão do WhatsApp: v${version.join(".")} (última? ${isLatest})`);
 
-        // Lê as credenciais do PostgreSQL
-        const { creds, keys } = await readAuthState();
-        const authState = creds ? { creds, keys } : { creds: initAuthCreds(), keys: {} };
-
-        const sock = makeWASocket({
-            auth: authState,
-            version,
-            printQRInTerminal: false,
-        });
-
-        // ==============================
-        // 📡 Evento de conexão
-        // ==============================
-        sock.ev.on("connection.update", async (update) => {
-            const { connection, lastDisconnect, qr } = update;
-
-            if (qr) {
-                // ALTERAÇÃO: Agora loga a URL do QR Code (texto simples) e não a grade de pontos.
-                const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qr)}`;
-                console.log("----------------------------------------------------");
-                console.log("📱 Escaneie este QR Code:");
-                console.log(`🔗 **Abra este link em seu navegador para ver o QR Code:** ${qrUrl}`);
-                console.log("----------------------------------------------------");
-            }
-
-            if (connection === "close") {
-                const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
-                console.log("⚠️ Conexão encerrada. Motivo:", reason);
-
-                // Reconneta apenas se não for um logout
-                if (reason !== DisconnectReason.loggedOut && !reconnecting) {
-                    reconnecting = true;
-                    console.log("🔁 Tentando reconectar em 5 segundos...");
-                    setTimeout(() => {
-                        reconnecting = false;
-                        startBot();
-                    }, 5000);
-                }
-            }
-
-            if (connection === "open") {
-                console.log("✅ Bot conectado ao WhatsApp com sucesso!");
-            }
-        });
-
-        // ==============================
-        // 💬 Evento de mensagens
-        // ==============================
-        sock.ev.on("messages.upsert", async ({ messages }) => {
-            const msg = messages[0];
-            if (!msg.message || msg.key.fromMe) return;
-
-            const sender = msg.key.remoteJid;
-            const texto = (
-                msg.message.conversation ||
-                msg.message.extendedTextMessage?.text ||
-                ""
-            ).trim().toLowerCase();
-
-            console.log(`📨 Mensagem recebida de ${sender}: ${texto}`);
-            
-            // Simular digitação
-            await sock.presenceSubscribe(sender);
-            await sock.sendPresenceUpdate('composing', sender);
-            await delay(1500);
-
-            if (["oi", "olá", "ola", "menu", "0"].includes(texto)) {
-                await sock.sendMessage(sender, {
-                    text: `👋 Olá! Aqui está o menu:\n\n1️⃣ - Ver catálogo\n2️⃣ - Falar com vendedor\n\nDigite o número da opção.`,
-                });
-            } else if (texto === "1") {
-                await sock.sendMessage(sender, {
-                    text: `🛍️ Nosso catálogo: https://loja.stoqui.com.br/florenzano-boutique\nDigite *0* para voltar ao menu.`,
-                });
-            } else if (texto === "2") {
-                await sock.sendMessage(sender, {
-                    text: `👩‍💼 Um vendedor entrará em contato com você em breve.\nDigite *0* para voltar ao menu.`,
-                });
-            } else {
-                await sock.sendMessage(sender, {
-                    text: `🤖 Não entendi. Digite *0* para ver o menu novamente.`,
-                });
-            }
-             // Encerrar digitação
-            await sock.sendPresenceUpdate('available', sender);
-        });
-
-        // ==============================
-        // 💾 Atualiza credenciais quando mudarem (salva no PG)
-        // ==============================
-        sock.ev.on("creds.update", async () => {
-            if (sock.authState?.creds) {
-                await saveAuthState(sock.authState);
-            }
-        });
-
-    } catch (err) {
-        console.error("❌ Erro ao iniciar o bot:", err);
-        console.log("⏳ Tentando reiniciar em 10 segundos...");
-        setTimeout(startBot, 10000);
+    // 🛑 PASSO CRUCIAL: Limpeza agressiva da pasta local antes de iniciar
+    if (fs.existsSync(AUTH_DIR)) {
+      console.log("🧹 Limpando diretório local de auth para evitar dados corrompidos...");
+      fs.rmSync(AUTH_DIR, { recursive: true, force: true });
     }
+    // Cria o diretório vazio
+    if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR);
+    
+    // Tenta restaurar a sessão do DB
+    await restoreAuthFilesFromDB(); 
+    
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+
+    const sock = makeWASocket({
+      auth: state,
+      version,
+      printQRInTerminal: false,
+    });
+
+    // ==============================
+    // 📡 Evento de conexão
+    // ==============================
+    sock.ev.on("connection.update", async (update) => {
+      const { connection, lastDisconnect, qr } = update;
+
+      if (qr) {
+        const qrBase64 = await qrcode.toDataURL(qr);
+        qrCodeData = `data:image/png;base64,${qrBase64}`; // 👈 SALVA NA VARIÁVEL GLOBAL
+        console.log("📱 QR Code gerado. Acesse a URL do seu Render para escanear!");
+        // O console.log(qrBase64) foi removido, pois o Express o exibirá
+      }
+
+      if (connection === "close") {
+        qrCodeData = null; // Limpa o QR Code se desconectar
+        const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
+        console.log("⚠️ Conexão encerrada. Motivo:", reason);
+
+        if (!reconnecting) {
+          reconnecting = true;
+          console.log("🔁 Tentando reconectar em 5 segundos...");
+          setTimeout(() => {
+            reconnecting = false;
+            startBot();
+          }, 5000);
+        }
+      }
+
+      if (connection === "open") {
+        qrCodeData = null; // Limpa o QR Code após conectar
+        console.log("✅ Bot conectado ao WhatsApp com sucesso!");
+      }
+    });
+
+    // ==============================
+    // 💬 Evento de mensagens
+    // ==============================
+    sock.ev.on("messages.upsert", async ({ messages }) => {
+      const msg = messages[0];
+      if (!msg.message || msg.key.fromMe) return;
+
+      const sender = msg.key.remoteJid;
+      const texto = (
+        msg.message.conversation ||
+        msg.message.extendedTextMessage?.text ||
+        ""
+      ).trim().toLowerCase();
+
+      console.log(`📨 Mensagem recebida de ${sender}: ${texto}`);
+
+      if (["oi", "olá", "ola", "menu", "0"].includes(texto)) {
+        await sock.sendMessage(sender, {
+          text: `👋 Olá! Aqui está o menu:\n\n1️⃣ - Ver catálogo\n2️⃣ - Falar com vendedor\n\nDigite o número da opção.`,
+        });
+      } else if (texto === "1") {
+        await sock.sendMessage(sender, {
+          text: `🛍️ Nosso catálogo: https://loja.stoqui.com.br/florenzano-boutique\nDigite *0* para voltar ao menu.`,
+        });
+      } else if (texto === "2") {
+        await sock.sendMessage(sender, {
+          text: `👩‍💼 Um vendedor entrará em contato com você em breve.\nDigite *0* para voltar ao menu.`,
+        });
+      } else {
+        await sock.sendMessage(sender, {
+          text: `🤖 Não entendi. Digite *0* para ver o menu novamente.`,
+        });
+      }
+    });
+
+    // ==============================
+    // 💾 Atualiza credenciais
+    // ==============================
+    sock.ev.on("creds.update", async () => {
+      await saveCreds();
+      await saveAuthFilesToDB();
+    });
+
+  } catch (err) {
+    console.error("❌ Erro ao iniciar o bot:", err);
+    console.log("⏳ Tentando reiniciar em 10 segundos...");
+    setTimeout(startBot, 10000);
+  }
 }
 
 // ==============================
-// ▶️ Execução Principal
+// ▶️ Execução e Servidor Web (Render)
 // ==============================
 (async () => {
-    console.log("🚀 Iniciando bot...");
-    await connectDatabase();
-    await startBot();
-})();
+  console.log("🚀 Iniciando bot...");
+  
+  // Conecta ao DB e inicia o bot
+  await connectDatabase();
+  startBot(); 
+
+  // 🌐 Rota para exibir o QR Code
+  app.get("/", (req, res) => {
+    if (qrCodeData) {
+      // Se o QR Code existir, exibe a página de escaneamento
+      res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head><title>QR Code Baileys</title></head>
+        <body>
+          <h1>
