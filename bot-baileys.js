@@ -12,7 +12,7 @@ const qrcode = require("qrcode");
 const fs = require("fs");
 const path = require("path");
 const { Client } = require("pg");
-const express = require("express"); // 👈 IMPORTAÇÃO ADICIONADA
+const express = require("express");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -25,10 +25,11 @@ const client = new Client({
   database: process.env.PGDATABASE,
   password: process.env.PGPASSWORD,
   port: process.env.PGPORT,
-  ssl: { rejectUnauthorized: false },
+  // Esta configuração é crucial para o Render
+  ssl: { rejectUnauthorized: false }, 
 });
 
-// A tabela foi corrigida para 'auth' (confirmei que é o nome correto no seu DB)
+// Nome da tabela corrigido para 'auth', conforme seu DB
 const AUTH_TABLE_NAME = "auth";
 
 async function connectDatabase() {
@@ -69,7 +70,7 @@ async function saveAuthFilesToDB() {
 }
 
 async function restoreAuthFilesFromDB() {
-  // Se a pasta não existe, cria. Se existir, é limpa no startBot()
+  // Cria o diretório vazio se não existir
   if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR);
 
   const res = await client.query(`SELECT filename, content FROM ${AUTH_TABLE_NAME}`);
@@ -82,24 +83,26 @@ async function restoreAuthFilesFromDB() {
 // 🚀 Inicialização do bot
 // ==============================
 let reconnecting = false;
-let qrCodeData = null; // 👈 Variável para armazenar o QR Code para o Express
+let qrCodeData = null; // Variável para armazenar o QR Code para o Express
 
 async function startBot() {
   try {
     const { version, isLatest } = await fetchLatestBaileysVersion();
     console.log(`📲 Usando versão do WhatsApp: v${version.join(".")} (última? ${isLatest})`);
 
-    // 🛑 PASSO CRUCIAL: Limpeza agressiva da pasta local antes de iniciar
+    // 🛑 LIMPEZA AGRESSIVA: Remove dados corrompidos locais
     if (fs.existsSync(AUTH_DIR)) {
       console.log("🧹 Limpando diretório local de auth para evitar dados corrompidos...");
+      // O Baileys lê a pasta local, então precisamos que ela esteja limpa
       fs.rmSync(AUTH_DIR, { recursive: true, force: true });
     }
-    // Cria o diretório vazio
-    if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR);
+    // Cria o diretório vazio (necessário para useMultiFileAuthState)
+    fs.mkdirSync(AUTH_DIR);
     
-    // Tenta restaurar a sessão do DB
+    // Tenta restaurar a sessão do DB (que agora está limpa)
     await restoreAuthFilesFromDB(); 
     
+    // Inicia o Baileys com o estado (limpo ou restaurado)
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
 
     const sock = makeWASocket({
@@ -115,14 +118,14 @@ async function startBot() {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
+        // Gera o QR Code e salva para ser exibido pelo Express
         const qrBase64 = await qrcode.toDataURL(qr);
-        qrCodeData = `data:image/png;base64,${qrBase64}`; // 👈 SALVA NA VARIÁVEL GLOBAL
+        qrCodeData = `data:image/png;base64,${qrBase64}`; 
         console.log("📱 QR Code gerado. Acesse a URL do seu Render para escanear!");
-        // O console.log(qrBase64) foi removido, pois o Express o exibirá
       }
 
       if (connection === "close") {
-        qrCodeData = null; // Limpa o QR Code se desconectar
+        qrCodeData = null; 
         const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
         console.log("⚠️ Conexão encerrada. Motivo:", reason);
 
@@ -137,7 +140,7 @@ async function startBot() {
       }
 
       if (connection === "open") {
-        qrCodeData = null; // Limpa o QR Code após conectar
+        qrCodeData = null; 
         console.log("✅ Bot conectado ao WhatsApp com sucesso!");
       }
     });
@@ -209,6 +212,32 @@ async function startBot() {
       res.send(`
         <!DOCTYPE html>
         <html>
-        <head><title>QR Code Baileys</title></head>
+        <head>
+          <title>QR Code Baileys</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            body { font-family: sans-serif; text-align: center; padding-top: 50px; }
+            img { max-width: 90%; height: auto; border: 1px solid #ccc; padding: 10px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+          </style>
+        </head>
         <body>
-          <h1>
+          <h1>Escaneie este QR Code (Ele expira rápido!)</h1>
+          <img src="${qrCodeData}" alt="QR Code para WhatsApp">
+          <p>Mantenha esta página aberta. Se o QR sumir, verifique os logs.</p>
+        </body>
+        </html>
+      `);
+    } else {
+      // Se ainda não tiver QR Code, ou já estiver conectado
+      res.send(`
+        <h1>Bot Baileys Conectado/Iniciando</h1>
+        <p>Aguardando QR Code ou já conectado. Verifique os logs do Render para o status de conexão.</p>
+      `);
+    }
+  });
+
+  // Inicia o servidor Express na porta do Render
+  app.listen(PORT, () => {
+    console.log(`🌍 Servidor web iniciado na porta ${PORT}. Acesse a URL do Render para escanear.`);
+  });
+})();
